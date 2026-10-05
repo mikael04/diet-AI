@@ -16,7 +16,14 @@ if ! command -v java &> /dev/null; then
     exit 1
 fi
 
-echo "Compilando APK de Debug..."
+# Garante que o bundle JS seja embutido no APK de debug para funcionar standalone no celular
+if [ -f "android/app/build.gradle" ]; then
+    if ! grep -q "debuggableVariants = \[\]" "android/app/build.gradle"; then
+        sed -i 's/\/\/ debuggableVariants = \["liteDebug", "prodDebug"\]/debuggableVariants = \[\]/g' "android/app/build.gradle"
+    fi
+fi
+
+echo "Compilando APK Standalone via Gradle..."
 cd android
 ./gradlew assembleDebug
 

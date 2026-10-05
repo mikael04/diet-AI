@@ -34,7 +34,13 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   - Aba de Configurações com metas diárias ajustáveis, chave da API Gemini, backup e exportação/importação.
 - **Build Nativo Android via Gradle:**
   - Configuração do Android Gradle Plugin (AGP), NDK 27 e CMake 3.22.
+  - Empacotamento automático do bundle JavaScript (`index.android.bundle`) dentro do APK (`debuggableVariants = []`), permitindo funcionamento 100% offline e independente sem dependência do servidor Metro no PC.
   - Script automatizado de compilação de APK (`scripts/build_android_apk.sh` e `npm run build:android`) compatível com JDK 17 LTS.
+- **Edição e Gestão Interativa de Alimentos no Comando de Voz:**
+  - Remoção direta de qualquer alimento interpretado pelo Gemini através do botão de lixeira.
+  - Edição interativa de porções (quantidade e unidades com chips rápidos: `g`, `unidade`, `colher`, `fatia`, `scoop`, `ml`).
+  - Troca/substituição de alimentos em tempo real com busca rápida na base TACO.
+  - Adição manual de alimentos complementares no próprio modal antes da confirmação.
 - **Testes Automatizados:**
   - Bateria de testes unitários (`scripts/test_nutrition_logic.ts`) para cálculos de macros, conversão de medidas da TACO, exportação e validação de importação JSON/CSV.
 
