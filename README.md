@@ -1,5 +1,9 @@
 # Diet-AI 🥗🎙️
 
+[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.1.0-blue.svg)](CHANGELOG.md)
+[![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-green.svg)](LICENSE)
+[![Expo](https://img.shields.io/badge/Expo-SDK%2052%2F57-000020.svg)](https://expo.dev)
+
 > Aplicativo multiplataforma para rastreamento de macronutrientes com interação primária por **comando de voz**, inteligência artificial com **Google Gemini** e banco de dados local embarcado pré-populado com a **Tabela TACO (Unicamp)**.
 
 ---
@@ -96,6 +100,62 @@ Para verificar a integridade da tipagem TypeScript:
 ```bash
 npm run typecheck
 ```
+
+---
+
+## 🏷️ Controle de Versão & Releases (Version Control)
+
+O projeto adota o padrão **[Semantic Versioning 2.0.0](https://semver.org/lang/pt-BR/)** (`MAJOR.MINOR.PATCH`), iniciando na série **`0.1.x`** (`0.1.0`), representando a fase de desenvolvimento funcional e pré-lançamento ativo.
+
+### 📌 Mapeamento de Versões no Projeto
+
+Quando uma nova versão for publicada, a versão deve ser sincronizada nos seguintes arquivos:
+
+| Arquivo | Propriedade | Exemplo | Descrição |
+| :--- | :--- | :--- | :--- |
+| `package.json` | `"version"` | `"0.1.0"` | Versão do pacote do ecossistema Node/NPM |
+| `app.json` | `"expo.version"` | `"0.1.0"` | Versão exibida pelo Expo e metadados da aplicação |
+| `android/app/build.gradle` | `versionName` | `"0.1.0"` | Nome da versão apresentada no Android |
+| `android/app/build.gradle` | `versionCode` | `1` | Inteiro incremental obrigatório para upgrades de APK/Play Store |
+
+### 🌿 Fluxo de Ramificações (Git Branching)
+
+* **`main`**: Ramificação principal e estável. Contém as versões lançadas e tagueadas.
+* **`feature/<nome>`**: Novas funcionalidades (ex: `feature/export-csv`, `feature/gemini-stream`).
+* **`fix/<nome>`**: Correções de problemas ou bugs específicos.
+* **`chore/<nome>`**: Tarefas de manutenção, dependências e automação de build.
+
+### ✍️ Padrão de Commits (Conventional Commits)
+
+Os commits devem seguir o padrão:
+* `feat:` Implementação de nova funcionalidade (ex: `feat: add backup json import`)
+* `fix:` Correção de bug (ex: `fix: handle gemini-3 thoughts block in response`)
+* `docs:` Atualizações de documentação (ex: `docs: add version control guide to readme`)
+* `refactor:` Melhorias internas sem alteração na regra de negócio
+* `test:` Adição ou ajuste de testes automatizados
+* `chore:` Manutenção de build, scripts ou pacotes
+
+### 🏷️ Como Criar uma Nova Tag de Versão
+
+Para criar uma nova versão no controle de versão Git:
+
+```bash
+# 1. Certifique-se de que os testes e tipos passam
+npm run typecheck && npm test
+
+# 2. Crie uma tag anotada (iniciando em 0.1)
+git tag -a v0.1.0 -m "Release v0.1.0: Voice logging, Gemini AI, TACO SQLite, Export/Import & Gradle build"
+
+# 3. Envie a tag para o repositório remoto
+git push origin v0.1.0
+```
+
+Para listar as versões existentes:
+```bash
+git tag -n
+```
+
+O histórico detalhado de todas as versões e alterações pode ser acompanhado no arquivo [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
