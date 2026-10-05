@@ -26,6 +26,17 @@ fi
 echo "Compilando APK Standalone via Gradle..."
 cd android
 ./gradlew assembleDebug
+cd ..
 
-echo "✅ APK gerado com sucesso!"
-echo "Localização: android/app/build/outputs/apk/debug/app-debug.apk"
+# Cria a cópia do APK com nome de versão no diretório raiz do projeto
+OUTPUT_APK="android/app/build/outputs/apk/debug/app-debug.apk"
+TARGET_NAME="diet-AI-0.2.apk"
+
+if [ -f "$OUTPUT_APK" ]; then
+    cp "$OUTPUT_APK" "$TARGET_NAME"
+    echo "✅ APK gerado com sucesso!"
+    echo "📦 Arquivo original: $OUTPUT_APK"
+    echo "📱 Cópia de distribuição: $TARGET_NAME"
+else
+    echo "⚠️ Arquivo $OUTPUT_APK não encontrado após o build."
+fi

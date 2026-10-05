@@ -7,6 +7,22 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
+## [0.2.0] - 2026-10-05
+
+### Adicionado
+- **Edição e Gestão Interativa de Alimentos no Comando de Voz:**
+  - Remoção direta de qualquer alimento com 1 toque no botão de lixeira.
+  - Edição interativa de porções com teclado numérico e chips rápidos de unidades (`g`, `unidade`, `colher`, `fatia`, `scoop`, `ml`).
+  - Substituição / troca de qualquer alimento com pesquisa dinâmica na base TACO em tempo real.
+  - Adição de novos alimentos complementares no modal antes de salvar.
+  - Recálculo de calorias e macronutrientes em tempo real.
+- **Distribuição Standalone de APK:**
+  - Cópia automática do APK para a raiz com o nome versionado `diet-AI-0.2.apk`.
+  - Empacotamento embutido do bundle JavaScript (`index.android.bundle`), eliminando a dependência do servidor Metro no celular.
+  - Atualização do `versionCode` para 2 no Android para permitir atualização transparente sobre a versão 0.1 sem perda de dados.
+
+---
+
 ## [0.1.0] - 2026-10-05
 
 ### Adicionado
