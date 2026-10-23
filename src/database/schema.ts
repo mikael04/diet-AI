@@ -21,6 +21,7 @@ export const CREATE_TABLES_SQL = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT UNIQUE NOT NULL,
     water_ml INTEGER DEFAULT 0,
+    weight_kg REAL,
     notes TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );

@@ -9,13 +9,13 @@ import {
   TextInput,
   ScrollView,
 } from 'react-native';
-import { Surface, Text, Button, IconButton, Divider } from 'react-native-paper';
+import { Surface, Text, Button, IconButton, Divider, useTheme } from 'react-native-paper';
 import { VoiceRecognitionService } from '../services/voice/VoiceRecognitionService';
 import { GeminiService } from '../services/ai/GeminiService';
 import { MealActionProcessor } from '../services/nlp/MealActionProcessor';
 import { SecureStorageService } from '../services/storage/SecureStorageService';
 import { FoodRepository } from '../database/repositories/FoodRepository';
-import { ResolvedMealAction, MealType, MEAL_LABELS, FoodItem } from '../types';
+import { ResolvedMealAction, MealType, MEAL_LABELS, FoodItem, VoiceStopMode } from '../types';
 import { calculateMacros } from '../utils/nutrition';
 import { macroColors } from '../theme/theme';
 
@@ -39,6 +39,12 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [resolvedAction, setResolvedAction] = useState<ResolvedMealAction | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
 
+  // Preferências de Voz
+  const [stopMode, setStopMode] = useState<VoiceStopMode>('silence');
+  const [silenceTimeout, setSilenceTimeout] = useState<number>(5);
+  const silenceTimerRef = useRef<any>(null);
+  const currentTranscriptRef = useRef<string>('');
+
   // Estado de Edição/Remoção de Alimento no Preview
   const [editingIndex, setEditingIndex] = useState<number | null>(null); // -1 para novo item
   const [editFood, setEditFood] = useState<FoodItem | null>(null);
@@ -55,12 +61,34 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      startVoiceSession();
+      initSession();
     } else {
       stopVoiceSession();
       resetState();
     }
   }, [visible]);
+
+  const initSession = async () => {
+    try {
+      const [defMode, sm, st] = await Promise.all([
+        SecureStorageService.getVoiceDefaultInputMode(),
+        SecureStorageService.getVoiceStopMode(),
+        SecureStorageService.getVoiceSilenceTimeout(),
+      ]);
+
+      setStopMode(sm);
+      setSilenceTimeout(st);
+
+      if (defMode === 'voice' && VoiceRecognitionService.isSpeechAvailable()) {
+        startVoiceSession(sm, st);
+      } else {
+        setStatus('idle');
+      }
+    } catch (e) {
+      console.warn('[VoiceModal] Erro ao carregar configurações de voz:', e);
+      setStatus('idle');
+    }
+  };
 
   useEffect(() => {
     if (status === 'listening') {
@@ -87,12 +115,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const resetState = () => {
     setStatus('idle');
     setTranscript('');
+    currentTranscriptRef.current = '';
     setTextInputFallback('');
     setErrorMessage(null);
     setResolvedAction(null);
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
     setCountdown(null);
     setEditingIndex(null);
@@ -102,37 +135,98 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setIsSearchingFood(false);
   };
 
-  const startVoiceSession = async () => {
+  const startVoiceSession = async (overrideStopMode?: VoiceStopMode, overrideTimeout?: number) => {
     if (!VoiceRecognitionService.isSpeechAvailable()) {
       setStatus('idle');
+      setErrorMessage('Reconhecimento de fala direto indisponível neste dispositivo. Digite pelo teclado abaixo.');
       return;
     }
 
-    setStatus('listening');
+    const sm = overrideStopMode || stopMode;
+    const st = overrideTimeout || silenceTimeout;
 
-    await VoiceRecognitionService.startListening({
-      onSpeechStart: () => setStatus('listening'),
-      onSpeechPartial: (text) => setTranscript(text),
-      onSpeechResults: (finalText) => {
-        setTranscript(finalText);
-        handleProcessTranscript(finalText);
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
+    setTranscript('');
+    currentTranscriptRef.current = '';
+    setStatus('listening');
+    setErrorMessage(null);
+
+    const resetSilenceTimer = (text: string) => {
+      if (sm !== 'silence') return;
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
+      if (text.trim().length > 0) {
+        silenceTimerRef.current = setTimeout(() => {
+          handleFinishSpeech();
+        }, st * 1000);
+      }
+    };
+
+    await VoiceRecognitionService.startListening(
+      {
+        onSpeechStart: () => setStatus('listening'),
+        onSpeechPartial: (text) => {
+          setTranscript(text);
+          currentTranscriptRef.current = text;
+          resetSilenceTimer(text);
+        },
+        onSpeechResults: (finalText) => {
+          setTranscript(finalText);
+          currentTranscriptRef.current = finalText;
+          resetSilenceTimer(finalText);
+          // NÃO submete imediatamente para não cortar o usuário durante pausas
+        },
+        onError: (err) => {
+          console.warn('[VoiceModal] Erro de voz:', err);
+          if (!currentTranscriptRef.current) {
+            setErrorMessage(err);
+            setStatus('idle');
+          }
+        },
+        onSpeechEnd: () => {
+          if (sm === 'silence' && currentTranscriptRef.current && status === 'listening') {
+            resetSilenceTimer(currentTranscriptRef.current);
+          }
+        },
       },
-      onError: (err) => {
-        console.warn('[VoiceModal] Erro de voz:', err);
-        setErrorMessage(err);
-        setStatus('idle');
-      },
-      onSpeechEnd: () => {
-        // Se já tiver transcrição mas não tiver disparado
-        if (transcript && status === 'listening') {
-          handleProcessTranscript(transcript);
-        }
-      },
-    });
+      {
+        continuous: true,
+        silenceTimeoutMillis: sm === 'manual' ? 120000 : Math.max(st * 1000, 5000),
+      }
+    );
   };
 
   const stopVoiceSession = async () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     await VoiceRecognitionService.stopListening();
+  };
+
+  const handleFinishSpeech = async () => {
+    const textToProcess = (currentTranscriptRef.current || transcript).trim();
+    await stopVoiceSession();
+    if (textToProcess) {
+      handleProcessTranscript(textToProcess);
+    } else {
+      setErrorMessage('Nenhuma fala reconhecida. Tente novamente ou use a digitação por teclado.');
+      setStatus('idle');
+    }
+  };
+
+  const handleSwitchToKeyboard = async () => {
+    const heardText = (currentTranscriptRef.current || transcript).trim();
+    await stopVoiceSession();
+    if (heardText) {
+      setTextInputFallback(heardText);
+    }
+    setStatus('idle');
   };
 
   const handleProcessTranscript = async (textToProcess: string) => {
@@ -265,12 +359,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setIsSearchingFood(false);
     setFoodSearchQuery('');
     setSearchResults([]);
-    if (food.default_unit && food.default_unit !== 'g') {
-      setEditUnit(food.default_unit);
-      if (food.default_unit === 'unidade') {
-        setEditQuantity('1');
-      }
-    }
+    setEditUnit('g');
+    setEditQuantity('100');
   };
 
   const handleSaveItemEdit = () => {
@@ -303,19 +393,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     handleCancelEdit();
   };
 
+  const theme = useTheme();
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onDismiss}>
       <View style={styles.overlay}>
-        <Surface style={styles.modalCard} elevation={5}>
+        <Surface style={[styles.modalCard, { backgroundColor: theme.colors.surface }]} elevation={5}>
           {/* Topo do Modal */}
           <View style={styles.header}>
-            <Text variant="titleMedium" style={styles.headerTitle}>
+            <Text variant="titleMedium" style={[styles.headerTitle, { color: theme.colors.onSurface }]}>
               Comando de Voz Diet-AI
             </Text>
-            <IconButton icon="close" size={22} onPress={onDismiss} />
+            <IconButton icon="close" size={22} iconColor={theme.colors.onSurface} onPress={onDismiss} />
           </View>
 
-          <Divider style={styles.divider} />
+          <Divider style={[styles.divider, { backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }]} />
 
           {/* Área Central / Visualizador de Onda */}
           {status === 'listening' && (
@@ -329,33 +421,47 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               </View>
 
               <Text variant="titleSmall" style={styles.listeningText}>
-                Ouvindo... Fale agora
+                Ouvindo microfone...
               </Text>
-              <Text variant="bodySmall" style={styles.exampleText}>
-                Ex: "Adicione 150g de frango e 2 ovos no almoço"
+              <Text variant="bodySmall" style={[styles.exampleText, { color: theme.colors.onSurfaceVariant }]}>
+                {stopMode === 'manual'
+                  ? 'Modo: Parada no clique • Pausas são livres'
+                  : `Modo: Pausas de até ${silenceTimeout}s permitidas`}
               </Text>
 
               {transcript ? (
-                <Surface style={styles.transcriptBox}>
-                  <Text variant="bodyMedium" style={styles.liveTranscript}>
+                <Surface style={[styles.transcriptBox, { backgroundColor: theme.dark ? '#1E293B' : '#F8FAFC', borderColor: theme.dark ? '#334155' : '#E2E8F0' }]}>
+                  <Text variant="bodyMedium" style={[styles.liveTranscript, { color: theme.colors.onSurface }]}>
                     "{transcript}"
                   </Text>
                 </Surface>
-              ) : null}
+              ) : (
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginTop: 14 }}>
+                  Fale seus alimentos... Ex: "150g de frango e 2 ovos no almoço"
+                </Text>
+              )}
 
-              <Button
-                mode="contained"
-                style={styles.stopBtn}
-                onPress={async () => {
-                  if (transcript) {
-                    handleProcessTranscript(transcript);
-                  } else {
-                    await stopVoiceSession();
-                  }
-                }}
-              >
-                Concluir Fala
-              </Button>
+              <View style={styles.listeningActionButtons}>
+                <Button
+                  mode="contained"
+                  icon="check"
+                  buttonColor="#0D9488"
+                  style={styles.stopBtn}
+                  onPress={handleFinishSpeech}
+                >
+                  Concluir Fala
+                </Button>
+
+                <Button
+                  mode="outlined"
+                  icon="keyboard"
+                  style={[styles.switchModeBtn, { borderColor: theme.dark ? '#334155' : '#CBD5E1' }]}
+                  textColor={theme.colors.onSurface}
+                  onPress={handleSwitchToKeyboard}
+                >
+                  Digitar por Teclado
+                </Button>
+              </View>
             </View>
           )}
 
@@ -363,14 +469,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           {status === 'processing' && (
             <View style={styles.centerContainer}>
               <ActivityIndicator size="large" color="#0D9488" style={{ marginBottom: 16 }} />
-              <Text variant="titleMedium" style={{ fontWeight: 'bold', color: '#0F172A' }}>
+              <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>
                 Interpretando com Gemini...
               </Text>
-              <Text variant="bodySmall" style={{ color: '#64748B', marginTop: 4 }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}>
                 Consultando tabela TACO e calculando macros
               </Text>
               {transcript ? (
-                <Text variant="bodySmall" style={styles.transcriptionSummary}>
+                <Text variant="bodySmall" style={[styles.transcriptionSummary, { color: theme.colors.onSurfaceVariant }]}>
                   "{transcript}"
                 </Text>
               ) : null}
@@ -402,14 +508,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
               {/* CARD DE EDIÇÃO / TROCA DE ALIMENTO */}
               {editingIndex !== null ? (
-                <Surface style={styles.editCard} elevation={2}>
+                <Surface style={[styles.editCard, { backgroundColor: theme.dark ? '#1E293B' : '#F8FAFC', borderColor: theme.dark ? '#334155' : '#CBD5E1' }]} elevation={2}>
                   <View style={styles.editCardHeader}>
-                    <Text variant="titleSmall" style={styles.editCardTitle}>
+                    <Text variant="titleSmall" style={[styles.editCardTitle, { color: theme.colors.onSurface }]}>
                       {editingIndex === -1 ? '➕ Adicionar Alimento' : '✏️ Editar Alimento'}
                     </Text>
                     <IconButton
                       icon="close"
                       size={20}
+                      iconColor={theme.colors.onSurface}
                       onPress={handleCancelEdit}
                       style={{ margin: 0 }}
                     />
@@ -419,25 +526,25 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   {isSearchingFood ? (
                     <View style={styles.searchSection}>
                       <TextInput
-                        style={styles.foodSearchInput}
+                        style={[styles.foodSearchInput, { backgroundColor: theme.dark ? '#0F172A' : '#FFFFFF', color: theme.colors.onSurface, borderColor: theme.dark ? '#334155' : '#CBD5E1' }]}
                         placeholder="Buscar na tabela TACO (ex: frango, arroz)..."
-                        placeholderTextColor="#94A3B8"
+                        placeholderTextColor={theme.dark ? '#94A3B8' : '#64748B'}
                         value={foodSearchQuery}
                         onChangeText={handleSearchFood}
                         autoFocus
                       />
                       {searchResults.length > 0 && (
-                        <View style={styles.searchResultsContainer}>
+                        <View style={[styles.searchResultsContainer, { backgroundColor: theme.dark ? '#0F172A' : '#FFFFFF', borderColor: theme.dark ? '#334155' : '#E2E8F0' }]}>
                           {searchResults.map((item) => (
                             <TouchableOpacity
                               key={item.id}
-                              style={styles.searchResultRow}
+                              style={[styles.searchResultRow, { borderBottomColor: theme.dark ? '#334155' : '#F1F5F9' }]}
                               onPress={() => handleSelectReplacementFood(item)}
                             >
-                              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#0F172A' }}>
+                              <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                                 {item.name}
                               </Text>
-                              <Text variant="labelSmall" style={{ color: '#64748B' }}>
+                              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
                                 {item.kcal_per_100g} kcal / 100g • {item.protein_per_100g}g P
                               </Text>
                             </TouchableOpacity>
@@ -445,7 +552,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                         </View>
                       )}
                       {foodSearchQuery.trim() && searchResults.length === 0 && (
-                        <Text variant="bodySmall" style={styles.noSearchFoundText}>
+                        <Text variant="bodySmall" style={[styles.noSearchFoundText, { color: theme.colors.onSurfaceVariant }]}>
                           Nenhum alimento encontrado para "{foodSearchQuery}".
                         </Text>
                       )}
@@ -462,7 +569,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                     </View>
                   ) : (
                     <View style={styles.selectedFoodSection}>
-                      <View style={styles.selectedFoodInfo}>
+                      <View style={[styles.selectedFoodInfo, { backgroundColor: theme.dark ? '#0F172A' : '#FFFFFF', borderColor: theme.dark ? '#334155' : '#E2E8F0' }]}>
                         <Text variant="bodyMedium" style={styles.selectedFoodName}>
                           {editFood ? editFood.name : 'Nenhum alimento selecionado'}
                         </Text>
@@ -483,11 +590,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   {/* Quantidade */}
                   <View style={styles.qtyUnitRow}>
                     <View style={{ flex: 1 }}>
-                      <Text variant="labelSmall" style={styles.fieldLabel}>
+                      <Text variant="labelSmall" style={[styles.fieldLabel, { color: theme.colors.onSurfaceVariant }]}>
                         Quantidade:
                       </Text>
                       <TextInput
-                        style={styles.qtyInput}
+                        style={[styles.qtyInput, { backgroundColor: theme.dark ? '#0F172A' : '#FFFFFF', borderColor: theme.dark ? '#334155' : '#CBD5E1', color: theme.colors.onSurface }]}
                         keyboardType="decimal-pad"
                         value={editQuantity}
                         onChangeText={setEditQuantity}
@@ -496,7 +603,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   </View>
 
                   {/* Seletor de Unidades */}
-                  <Text variant="labelSmall" style={[styles.fieldLabel, { marginTop: 8 }]}>
+                  <Text variant="labelSmall" style={[styles.fieldLabel, { color: theme.colors.onSurfaceVariant, marginTop: 8 }]}>
                     Unidade:
                   </Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.unitScroll}>
@@ -505,6 +612,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                         key={u}
                         style={[
                           styles.unitChip,
+                          { backgroundColor: theme.dark ? '#334155' : '#E2E8F0' },
                           editUnit === u && styles.unitChipSelected,
                         ]}
                         onPress={() => setEditUnit(u)}
@@ -512,6 +620,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                         <Text
                           style={[
                             styles.unitChipText,
+                            { color: theme.dark ? '#CBD5E1' : '#475569' },
                             editUnit === u && styles.unitChipTextSelected,
                           ]}
                         >
@@ -523,7 +632,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
                   {/* Pré-visualização de Macros Calculados */}
                   {editFood && (
-                    <View style={styles.macrosPreviewBox}>
+                    <View style={[styles.macrosPreviewBox, { backgroundColor: theme.dark ? '#0F172A' : '#FFFFFF', borderColor: theme.dark ? '#334155' : '#E2E8F0' }]}>
                       {(() => {
                         const m = calculateMacros(
                           editFood,
@@ -569,24 +678,24 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               ) : null}
 
               {/* LISTA DOS ITENS MAPEADOS */}
-              <View style={styles.itemsList}>
+              <View style={[styles.itemsList, { backgroundColor: theme.dark ? '#1E293B' : '#F8FAFC' }]}>
                 {resolvedAction.resolved_items.length === 0 ? (
                   <View style={styles.emptyItemsBox}>
-                    <Text variant="bodyMedium" style={styles.emptyItemsText}>
+                    <Text variant="bodyMedium" style={[styles.emptyItemsText, { color: theme.colors.onSurfaceVariant }]}>
                       Nenhum alimento na lista no momento.
                     </Text>
                   </View>
                 ) : (
                   resolvedAction.resolved_items.map((item, idx) => (
-                    <View key={idx} style={styles.previewItemRow}>
+                    <View key={idx} style={[styles.previewItemRow, { borderBottomColor: theme.dark ? '#334155' : '#E2E8F0' }]}>
                       <TouchableOpacity
                         style={{ flex: 1 }}
                         onPress={() => handleStartEditItem(idx)}
                       >
-                        <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#0F172A' }}>
+                        <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                           {item.food.name}
                         </Text>
-                        <Text variant="bodySmall" style={{ color: '#64748B' }}>
+                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                           {item.quantity} {item.unit}
                         </Text>
                       </TouchableOpacity>
@@ -663,8 +772,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           {status === 'idle' && (
             <View style={styles.idleContainer}>
               {errorMessage && (
-                <Surface style={styles.errorBox}>
-                  <Text variant="bodySmall" style={styles.errorText}>
+                <Surface style={[styles.errorBox, { backgroundColor: theme.dark ? '#7F1D1D' : '#FEF2F2' }]}>
+                  <Text variant="bodySmall" style={[styles.errorText, { color: theme.dark ? '#FCA5A5' : '#DC2626' }]}>
                     {errorMessage}
                   </Text>
                 </Surface>
@@ -674,21 +783,54 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 <Button
                   mode="contained"
                   icon="microphone"
+                  buttonColor="#0D9488"
                   style={styles.retryMicBtn}
-                  onPress={startVoiceSession}
+                  onPress={() => startVoiceSession()}
                 >
-                  Falar no Microfone
+                  Falar Diretamente no Microfone
                 </Button>
               ) : (
-                <Surface style={styles.expoGoBanner} elevation={0}>
-                  <Text variant="labelMedium" style={{ fontWeight: 'bold', color: '#0D9488' }}>
+                <Surface style={[styles.expoGoBanner, { backgroundColor: theme.dark ? '#134E4A' : '#CCFBF1' }]} elevation={0}>
+                  <Text variant="labelMedium" style={{ fontWeight: 'bold', color: theme.dark ? '#5EEAD4' : '#0D9488' }}>
                     📱 Modo Expo Go
                   </Text>
-                  <Text variant="bodySmall" style={{ color: '#475569', marginTop: 2 }}>
-                    Digite seu comando abaixo ou toque em um exemplo rápido:
+                  <Text variant="bodySmall" style={{ color: theme.dark ? '#CCFBF1' : '#475569', marginTop: 2 }}>
+                    Digite seu comando abaixo ou use o microfone do seu teclado:
                   </Text>
                 </Surface>
               )}
+
+              <Text variant="labelSmall" style={[styles.orText, { color: theme.colors.onSurfaceVariant }]}>
+                {VoiceRecognitionService.isSpeechAvailable()
+                  ? 'Ou digite / use o microfone do seu teclado:'
+                  : 'Digite ou use o microfone do seu teclado:'}
+              </Text>
+
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={[
+                    styles.textInput,
+                    {
+                      backgroundColor: theme.dark ? '#1E293B' : '#F1F5F9',
+                      color: theme.colors.onSurface,
+                      borderColor: theme.dark ? '#334155' : '#CBD5E1',
+                    },
+                  ]}
+                  placeholder="Ex: 2 ovos e 1 fatia de pão no café"
+                  placeholderTextColor={theme.dark ? '#94A3B8' : '#64748B'}
+                  value={textInputFallback}
+                  onChangeText={setTextInputFallback}
+                  multiline
+                />
+                <IconButton
+                  icon="send"
+                  mode="contained"
+                  containerColor="#0D9488"
+                  iconColor="#FFFFFF"
+                  disabled={!textInputFallback.trim()}
+                  onPress={() => handleProcessTranscript(textInputFallback)}
+                />
+              </View>
 
               {/* Chips de Exemplos Rápidos */}
               <View style={styles.quickChipsContainer}>
@@ -700,33 +842,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 ].map((example, idx) => (
                   <TouchableOpacity
                     key={idx}
-                    style={styles.quickChip}
+                    style={[styles.quickChip, { backgroundColor: theme.dark ? '#1E293B' : '#F1F5F9' }]}
                     onPress={() => {
                       setTextInputFallback(example);
                       handleProcessTranscript(example);
                     }}
                   >
-                    <Text variant="bodySmall" style={styles.quickChipText}>
+                    <Text variant="bodySmall" style={[styles.quickChipText, { color: theme.dark ? '#2DD4BF' : '#0D9488' }]}>
                       ⚡ {example}
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </View>
-
-              <View style={styles.inputRow}>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Ex: 2 ovos e 1 fatia de pão no café"
-                  value={textInputFallback}
-                  onChangeText={setTextInputFallback}
-                />
-                <IconButton
-                  icon="send"
-                  mode="contained"
-                  containerColor="#0D9488"
-                  iconColor="#FFFFFF"
-                  onPress={() => handleProcessTranscript(textInputFallback)}
-                />
               </View>
             </View>
           )}
@@ -819,11 +945,21 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
   },
-  stopBtn: {
+  listeningActionButtons: {
+    width: '100%',
     marginTop: 18,
+    gap: 10,
+    alignItems: 'center',
+  },
+  stopBtn: {
     backgroundColor: '#0D9488',
     borderRadius: 12,
-    width: '80%',
+    width: '85%',
+  },
+  switchModeBtn: {
+    borderRadius: 12,
+    width: '85%',
+    borderWidth: 1,
   },
   transcriptionSummary: {
     color: '#64748B',

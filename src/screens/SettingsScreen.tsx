@@ -15,19 +15,26 @@ import {
   Switch,
   Divider,
   Chip,
+  useTheme,
 } from 'react-native-paper';
 import { SecureStorageService } from '../services/storage/SecureStorageService';
 import { GeminiService } from '../services/ai/GeminiService';
 import { ExportService, ExportSummary } from '../services/export/ExportService';
-import { NutritionTargets } from '../types';
+import { useAppTheme } from '../context/ThemeContext';
+import { NutritionTargets, VoiceInputMode, VoiceStopMode } from '../types';
 
 export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const theme = useTheme();
+  const { themeMode, setThemeMode } = useAppTheme();
   const [provider, setProvider] = useState<'gemini' | 'openai'>('gemini');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState('gemini-3.8-flash');
   const [openAiEndpoint, setOpenAiEndpoint] = useState('https://api.openai.com/v1');
   const [autoConfirm, setAutoConfirm] = useState(false);
+  const [voiceDefaultInputMode, setVoiceDefaultInputMode] = useState<VoiceInputMode>('keyboard');
+  const [voiceStopMode, setVoiceStopMode] = useState<VoiceStopMode>('silence');
+  const [voiceSilenceTimeout, setVoiceSilenceTimeout] = useState<number>(5);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
@@ -48,7 +55,7 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   }, []);
 
   const loadSettings = async () => {
-    const [p, k, m, ep, ac, t, summary] = await Promise.all([
+    const [p, k, m, ep, ac, t, summary, vDim, vSm, vSt] = await Promise.all([
       SecureStorageService.getAiProvider(),
       SecureStorageService.getGeminiApiKey(),
       SecureStorageService.getAiModel(),
@@ -56,6 +63,9 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       SecureStorageService.getVoiceAutoConfirm(),
       SecureStorageService.getNutritionTargets(),
       ExportService.getExportSummary(),
+      SecureStorageService.getVoiceDefaultInputMode(),
+      SecureStorageService.getVoiceStopMode(),
+      SecureStorageService.getVoiceSilenceTimeout(),
     ]);
 
     const activeModel = (!m || m === 'gemini-2.5-flash') ? 'gemini-3.8-flash' : m;
@@ -64,6 +74,9 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     setModel(activeModel);
     setOpenAiEndpoint(ep);
     setAutoConfirm(ac);
+    setVoiceDefaultInputMode(vDim);
+    setVoiceStopMode(vSm);
+    setVoiceSilenceTimeout(vSt);
     setExportSummary(summary);
 
     setKcal(t.daily_kcal.toString());
@@ -143,6 +156,9 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       SecureStorageService.setOpenAiEndpoint(openAiEndpoint),
       SecureStorageService.setVoiceAutoConfirm(autoConfirm),
       SecureStorageService.setNutritionTargets(targets),
+      SecureStorageService.setVoiceDefaultInputMode(voiceDefaultInputMode),
+      SecureStorageService.setVoiceStopMode(voiceStopMode),
+      SecureStorageService.setVoiceSilenceTimeout(voiceSilenceTimeout),
     ]);
 
     Alert.alert('Sucesso', 'Configurações salvas com sucesso!');
@@ -163,13 +179,26 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     setTestResult(res.message);
   };
 
+  const inputDynamicStyle = {
+    backgroundColor: theme.dark ? '#1E293B' : '#F1F5F9',
+    borderColor: theme.dark ? '#334155' : '#CBD5E1',
+    borderWidth: 1,
+    color: theme.colors.onSurface,
+  };
+  const placeholderColor = theme.dark ? '#94A3B8' : '#64748B';
+  const cardBorder = {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.dark ? '#334155' : '#E2E8F0',
+    borderWidth: 1,
+  };
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <Surface style={styles.header} elevation={1}>
+      <Surface style={[styles.header, { backgroundColor: theme.colors.surface }]} elevation={1}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <IconButton icon="arrow-left" size={24} onPress={onBack} />
-          <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#0F172A' }}>
+          <IconButton icon="arrow-left" size={24} iconColor={theme.colors.onSurface} onPress={onBack} />
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>
             Configurações
           </Text>
         </View>
@@ -179,16 +208,36 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       </Surface>
 
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Seção 0: Aparência e Modo Escuro */}
+        <Surface style={[styles.section, cardBorder]} elevation={1}>
+          <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
+            🌓 Aparência do Aplicativo
+          </Text>
+          <Text variant="bodySmall" style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
+            Escolha o tema visual do aplicativo.
+          </Text>
+          <SegmentedButtons
+            value={themeMode}
+            onValueChange={(val) => setThemeMode(val as any)}
+            buttons={[
+              { value: 'light', label: 'Claro', icon: 'white-balance-sunny' },
+              { value: 'dark', label: 'Escuro', icon: 'moon-waning-crescent' },
+              { value: 'system', label: 'Sistema', icon: 'cellphone' },
+            ]}
+            style={{ marginTop: 10 }}
+          />
+        </Surface>
+
         {/* Seção 1: Inteligência Artificial */}
-        <Surface style={styles.section} elevation={1}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
+        <Surface style={[styles.section, cardBorder]} elevation={1}>
+          <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
             Inteligência Artificial (LLM)
           </Text>
-          <Text variant="bodySmall" style={styles.sectionSubtitle}>
+          <Text variant="bodySmall" style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Processamento de linguagem natural dos comandos de voz.
           </Text>
 
-          <Text variant="labelMedium" style={styles.label}>
+          <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>
             Provedor de IA
           </Text>
           <SegmentedButtons
@@ -201,13 +250,14 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             style={{ marginBottom: 14 }}
           />
 
-          <Text variant="labelMedium" style={styles.label}>
+          <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>
             Chave de API (API Key)
           </Text>
-          <View style={styles.apiKeyRow}>
+          <View style={[styles.apiKeyRow, { backgroundColor: theme.dark ? '#1E293B' : '#F1F5F9', borderColor: theme.dark ? '#334155' : '#CBD5E1', borderWidth: 1 }]}>
             <TextInput
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              style={[styles.input, { flex: 1, marginBottom: 0, borderWidth: 0, backgroundColor: 'transparent', color: theme.colors.onSurface }]}
               placeholder="Cole sua chave aqui"
+              placeholderTextColor={placeholderColor}
               secureTextEntry={!showKey}
               value={apiKey}
               onChangeText={setApiKey}
@@ -215,11 +265,12 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             <IconButton
               icon={showKey ? 'eye-off' : 'eye'}
               size={20}
+              iconColor={theme.colors.onSurfaceVariant}
               onPress={() => setShowKey(!showKey)}
             />
           </View>
 
-          <Text variant="labelMedium" style={[styles.label, { marginTop: 12 }]}>
+          <Text variant="labelMedium" style={[styles.label, { marginTop: 12, color: theme.colors.onSurfaceVariant }]}>
             Modelo Selecionado
           </Text>
           {provider === 'gemini' && (
@@ -229,9 +280,10 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 onPress={() => setModel('gemini-3.8-flash')}
                 style={[
                   styles.chip,
-                  model === 'gemini-3.8-flash' && styles.chipSelected,
+                  { backgroundColor: theme.dark ? '#334155' : '#F1F5F9' },
+                  model === 'gemini-3.8-flash' && { backgroundColor: theme.dark ? '#134E4A' : '#CCFBF1' },
                 ]}
-                textStyle={{ fontSize: 12 }}
+                textStyle={{ fontSize: 12, color: theme.colors.onSurface }}
               >
                 gemini-3.8-flash (Recomendado)
               </Chip>
@@ -240,29 +292,32 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 onPress={() => setModel('gemini-3.5-flash-lite')}
                 style={[
                   styles.chip,
-                  model === 'gemini-3.5-flash-lite' && styles.chipSelected,
+                  { backgroundColor: theme.dark ? '#334155' : '#F1F5F9' },
+                  model === 'gemini-3.5-flash-lite' && { backgroundColor: theme.dark ? '#134E4A' : '#CCFBF1' },
                 ]}
-                textStyle={{ fontSize: 12 }}
+                textStyle={{ fontSize: 12, color: theme.colors.onSurface }}
               >
                 gemini-3.5-flash-lite (Rápido)
               </Chip>
             </View>
           )}
           <TextInput
-            style={styles.input}
+            style={[styles.input, inputDynamicStyle]}
             placeholder="ex: gemini-3.8-flash ou gemini-3.5-flash-lite"
+            placeholderTextColor={placeholderColor}
             value={model}
             onChangeText={setModel}
           />
 
           {provider === 'openai' && (
             <>
-              <Text variant="labelMedium" style={styles.label}>
+              <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>
                 Endpoint Customizado
               </Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, inputDynamicStyle]}
                 placeholder="https://api.openai.com/v1"
+                placeholderTextColor={placeholderColor}
                 value={openAiEndpoint}
                 onChangeText={setOpenAiEndpoint}
               />
@@ -293,34 +348,36 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
         </Surface>
 
         {/* Seção 2: Metas Nutricionais Diárias */}
-        <Surface style={styles.section} elevation={1}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
+        <Surface style={[styles.section, cardBorder]} elevation={1}>
+          <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
             Metas Nutricionais Diárias
           </Text>
-          <Text variant="bodySmall" style={styles.sectionSubtitle}>
+          <Text variant="bodySmall" style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Ajuste suas calorias e macronutrientes recomendados.
           </Text>
 
           <View style={styles.targetRow}>
-            <Text variant="bodyMedium" style={styles.targetLabel}>
+            <Text variant="bodyMedium" style={[styles.targetLabel, { color: theme.colors.onSurface }]}>
               Calorias Totais (kcal)
             </Text>
             <TextInput
-              style={styles.targetInput}
+              style={[styles.targetInput, inputDynamicStyle]}
+              placeholderTextColor={placeholderColor}
               keyboardType="numeric"
               value={kcal}
               onChangeText={setKcal}
             />
           </View>
 
-          <Divider style={{ marginVertical: 8 }} />
+          <Divider style={{ marginVertical: 8, backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }} />
 
           <View style={styles.targetRow}>
-            <Text variant="bodyMedium" style={styles.targetLabel}>
+            <Text variant="bodyMedium" style={[styles.targetLabel, { color: theme.colors.onSurface }]}>
               Proteínas (g)
             </Text>
             <TextInput
-              style={styles.targetInput}
+              style={[styles.targetInput, inputDynamicStyle]}
+              placeholderTextColor={placeholderColor}
               keyboardType="numeric"
               value={protein}
               onChangeText={setProtein}
@@ -328,11 +385,12 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           </View>
 
           <View style={styles.targetRow}>
-            <Text variant="bodyMedium" style={styles.targetLabel}>
+            <Text variant="bodyMedium" style={[styles.targetLabel, { color: theme.colors.onSurface }]}>
               Carboidratos (g)
             </Text>
             <TextInput
-              style={styles.targetInput}
+              style={[styles.targetInput, inputDynamicStyle]}
+              placeholderTextColor={placeholderColor}
               keyboardType="numeric"
               value={carbs}
               onChangeText={setCarbs}
@@ -340,11 +398,12 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           </View>
 
           <View style={styles.targetRow}>
-            <Text variant="bodyMedium" style={styles.targetLabel}>
+            <Text variant="bodyMedium" style={[styles.targetLabel, { color: theme.colors.onSurface }]}>
               Gorduras (g)
             </Text>
             <TextInput
-              style={styles.targetInput}
+              style={[styles.targetInput, inputDynamicStyle]}
+              placeholderTextColor={placeholderColor}
               keyboardType="numeric"
               value={fat}
               onChangeText={setFat}
@@ -352,11 +411,12 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           </View>
 
           <View style={styles.targetRow}>
-            <Text variant="bodyMedium" style={styles.targetLabel}>
+            <Text variant="bodyMedium" style={[styles.targetLabel, { color: theme.colors.onSurface }]}>
               Fibras (g)
             </Text>
             <TextInput
-              style={styles.targetInput}
+              style={[styles.targetInput, inputDynamicStyle]}
+              placeholderTextColor={placeholderColor}
               keyboardType="numeric"
               value={fiber}
               onChangeText={setFiber}
@@ -364,40 +424,158 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           </View>
         </Surface>
 
-        {/* Seção 3: Preferências de Voz */}
-        <Surface style={styles.section} elevation={1}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
-            Preferências de Voz
+        {/* Seção 3: Preferências de Voz e Entrada */}
+        <Surface style={[styles.section, cardBorder]} elevation={1}>
+          <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
+            Preferências de Voz e Entrada
           </Text>
+          <Text variant="bodySmall" style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant, marginBottom: 12 }]}>
+            Personalize como o app registra suas refeições por comando ou texto.
+          </Text>
+
+          {/* Modo Inicial ao Abrir */}
+          <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>
+            Ao abrir "Falar Refeição", iniciar em:
+          </Text>
+          <SegmentedButtons
+            value={voiceDefaultInputMode}
+            onValueChange={(val) => {
+              const mode = val as VoiceInputMode;
+              setVoiceDefaultInputMode(mode);
+              SecureStorageService.setVoiceDefaultInputMode(mode);
+            }}
+            buttons={[
+              {
+                value: 'keyboard',
+                label: '⌨️ Digitar / Teclado',
+              },
+              {
+                value: 'voice',
+                label: '🎙️ Falar Direto',
+              },
+            ]}
+            style={{ marginBottom: 16 }}
+          />
+
+          <Divider style={{ marginVertical: 8, backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }} />
+
+          {/* Modo de Parada da Gravação */}
+          <Text variant="labelMedium" style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>
+            Ao falar diretamente, parar a gravação:
+          </Text>
+          <SegmentedButtons
+            value={voiceStopMode}
+            onValueChange={(val) => {
+              const mode = val as VoiceStopMode;
+              setVoiceStopMode(mode);
+              SecureStorageService.setVoiceStopMode(mode);
+            }}
+            buttons={[
+              {
+                value: 'silence',
+                label: 'Tempo sem som',
+              },
+              {
+                value: 'manual',
+                label: 'Apenas no clique',
+              },
+            ]}
+            style={{ marginBottom: 12 }}
+          />
+
+          {/* Tempo de Espera sem Som (quando 'silence') */}
+          {voiceStopMode === 'silence' ? (
+            <View style={{ marginBottom: 16 }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>
+                Tempo de pausa sem som antes de parar:
+              </Text>
+              <View style={styles.chipRow}>
+                {[
+                  { label: '3 seg', val: 3 },
+                  { label: '5 seg (Padrão)', val: 5 },
+                  { label: '7 seg', val: 7 },
+                  { label: '10 seg', val: 10 },
+                ].map((item) => (
+                  <Chip
+                    key={item.val}
+                    selected={voiceSilenceTimeout === item.val}
+                    onPress={() => {
+                      setVoiceSilenceTimeout(item.val);
+                      SecureStorageService.setVoiceSilenceTimeout(item.val);
+                    }}
+                    style={[
+                      styles.chip,
+                      { backgroundColor: theme.dark ? '#334155' : '#F1F5F9' },
+                      voiceSilenceTimeout === item.val && {
+                        backgroundColor: theme.dark ? '#134E4A' : '#CCFBF1',
+                      },
+                    ]}
+                    textStyle={{
+                      fontSize: 12,
+                      fontWeight: voiceSilenceTimeout === item.val ? 'bold' : 'normal',
+                      color:
+                        voiceSilenceTimeout === item.val
+                          ? theme.dark
+                            ? '#5EEAD4'
+                            : '#0D9488'
+                          : theme.colors.onSurface,
+                    }}
+                  >
+                    {item.label}
+                  </Chip>
+                ))}
+              </View>
+              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}>
+                Permite pausar entre alimentos sem interromper a fala antecipadamente.
+              </Text>
+            </View>
+          ) : (
+            <View style={{ marginBottom: 16 }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                O microfone continuará ouvindo com pausas livres até você tocar no botão "Concluir Fala".
+              </Text>
+            </View>
+          )}
+
+          <Divider style={{ marginVertical: 8, backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }} />
+
+          {/* Auto-confirmação Rápida */}
           <View style={styles.switchRow}>
             <View style={{ flex: 1 }}>
-              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                 Auto-confirmação Rápida
               </Text>
-              <Text variant="bodySmall" style={{ color: '#64748B' }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 Salva a refeição automaticamente após 3 segundos sem precisar tocar na tela.
               </Text>
             </View>
-            <Switch value={autoConfirm} onValueChange={setAutoConfirm} color="#0D9488" />
+            <Switch
+              value={autoConfirm}
+              onValueChange={(val) => {
+                setAutoConfirm(val);
+                SecureStorageService.setVoiceAutoConfirm(val);
+              }}
+              color="#0D9488"
+            />
           </View>
         </Surface>
 
         {/* Seção 4: Backup, Exportação e Importação de Dados */}
-        <Surface style={styles.section} elevation={1}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
+        <Surface style={[styles.section, cardBorder]} elevation={1}>
+          <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
             Backup, Exportação e Importação
           </Text>
-          <Text variant="bodySmall" style={styles.sectionSubtitle}>
+          <Text variant="bodySmall" style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Exporte ou restaure suas refeições registradas, receitas e alimentos manuais.
           </Text>
 
           {exportSummary && (
-            <View style={styles.summaryStatsRow}>
+            <View style={[styles.summaryStatsRow, { backgroundColor: theme.dark ? '#1E293B' : '#F8FAFC' }]}>
               <View style={styles.summaryStatItem}>
                 <Text variant="titleMedium" style={styles.summaryStatNumber}>
                   {exportSummary.daysCount}
                 </Text>
-                <Text variant="labelSmall" style={styles.summaryStatLabel}>
+                <Text variant="labelSmall" style={[styles.summaryStatLabel, { color: theme.colors.onSurfaceVariant }]}>
                   Dias com logs
                 </Text>
               </View>
@@ -405,7 +583,7 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 <Text variant="titleMedium" style={styles.summaryStatNumber}>
                   {exportSummary.itemsCount}
                 </Text>
-                <Text variant="labelSmall" style={styles.summaryStatLabel}>
+                <Text variant="labelSmall" style={[styles.summaryStatLabel, { color: theme.colors.onSurfaceVariant }]}>
                   Alimentos salvos
                 </Text>
               </View>
@@ -413,7 +591,7 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 <Text variant="titleMedium" style={styles.summaryStatNumber}>
                   {exportSummary.recipesCount}
                 </Text>
-                <Text variant="labelSmall" style={styles.summaryStatLabel}>
+                <Text variant="labelSmall" style={[styles.summaryStatLabel, { color: theme.colors.onSurfaceVariant }]}>
                   Receitas
                 </Text>
               </View>
@@ -421,22 +599,22 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 <Text variant="titleMedium" style={styles.summaryStatNumber}>
                   {exportSummary.customFoodsCount}
                 </Text>
-                <Text variant="labelSmall" style={styles.summaryStatLabel}>
+                <Text variant="labelSmall" style={[styles.summaryStatLabel, { color: theme.colors.onSurfaceVariant }]}>
                   Alimentos manuais
                 </Text>
               </View>
             </View>
           )}
 
-          <Divider style={{ marginVertical: 12 }} />
+          <Divider style={{ marginVertical: 14, backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }} />
 
           {/* Opção Importar Backup JSON */}
           <View style={styles.exportItem}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#0F172A' }}>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                 Importar Backup (JSON)
               </Text>
-              <Text variant="bodySmall" style={{ color: '#64748B' }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 Restaura histórico, receitas e alimentos a partir de um arquivo .json.
               </Text>
             </View>
@@ -452,15 +630,15 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             </Button>
           </View>
 
-          <Divider style={{ marginVertical: 12 }} />
+          <Divider style={{ marginVertical: 12, backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }} />
 
           {/* Opção 1: Backup Completo JSON */}
           <View style={styles.exportItem}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#0F172A' }}>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                 Exportar Backup (JSON)
               </Text>
-              <Text variant="bodySmall" style={{ color: '#64748B' }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 Exporta tudo: histórico de refeições, metas, receitas e alimentos manuais em arquivo único.
               </Text>
             </View>
@@ -476,15 +654,15 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             </Button>
           </View>
 
-          <Divider style={{ marginVertical: 12 }} />
+          <Divider style={{ marginVertical: 12, backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }} />
 
           {/* Opção 2: Refeições em CSV */}
           <View style={styles.exportItem}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#0F172A' }}>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                 Diário de Refeições (CSV / Excel)
               </Text>
-              <Text variant="bodySmall" style={{ color: '#64748B' }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 Planilha com datas, refeições, gramas, calorias e macros consumidos dia a dia.
               </Text>
             </View>
@@ -500,15 +678,15 @@ export const SettingsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             </Button>
           </View>
 
-          <Divider style={{ marginVertical: 12 }} />
+          <Divider style={{ marginVertical: 12, backgroundColor: theme.dark ? '#334155' : '#F1F5F9' }} />
 
           {/* Opção 3: Receitas e Alimentos Manuais em CSV */}
           <View style={styles.exportItem}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#0F172A' }}>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                 Receitas & Alimentos (CSV)
               </Text>
-              <Text variant="bodySmall" style={{ color: '#64748B' }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 Planilha com alimentos criados por você e todas as receitas com seus ingredientes.
               </Text>
             </View>

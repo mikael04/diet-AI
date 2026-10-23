@@ -9,6 +9,11 @@ export interface VoiceListenerCallbacks {
   onError?: (error: string) => void;
 }
 
+export interface VoiceRecognitionOptions {
+  continuous?: boolean;
+  silenceTimeoutMillis?: number;
+}
+
 let cachedNativeModule: any = undefined;
 
 function getNativeSpeechModule(): any {
@@ -27,6 +32,14 @@ export class VoiceRecognitionService {
   private static removeResultListener: (() => void) | null = null;
   private static removeErrorListener: (() => void) | null = null;
   private static removeEndListener: (() => void) | null = null;
+  private static accumulatedTranscript: string = '';
+
+  /**
+   * Retorna o texto acumulado na sessão atual.
+   */
+  static getAccumulatedTranscript(): string {
+    return this.accumulatedTranscript;
+  }
 
   /**
    * Retorna se o motor de voz nativo do sistema está disponível neste ambiente.
@@ -67,12 +80,16 @@ export class VoiceRecognitionService {
   /**
    * Inicia o reconhecimento de voz nativo ou Web
    */
-  static async startListening(callbacks: VoiceListenerCallbacks): Promise<void> {
+  static async startListening(
+    callbacks: VoiceListenerCallbacks,
+    options?: VoiceRecognitionOptions
+  ): Promise<void> {
     this.isListening = true;
+    this.accumulatedTranscript = '';
 
     // Web Speech API para navegadores
     if (Platform.OS === 'web') {
-      this.startWebSpeech(callbacks);
+      this.startWebSpeech(callbacks, options);
       return;
     }
 
@@ -97,17 +114,41 @@ export class VoiceRecognitionService {
       this.cleanupListeners();
 
       const resListener = nativeMod.addListener('result', (event: any) => {
-        const transcript = event.results?.[0]?.transcript || '';
-        if (event.isFinal) {
-          callbacks.onSpeechResults?.(transcript);
+        const rawTranscript = event.results?.[0]?.transcript || '';
+        if (!rawTranscript) return;
+
+        let fullTranscript = '';
+        const prev = VoiceRecognitionService.accumulatedTranscript.trim();
+        const current = rawTranscript.trim();
+
+        if (prev && current.toLowerCase().startsWith(prev.toLowerCase())) {
+          // Motor cumulativo (ex: iOS ou Web): o texto atual já contém todo o histórico
+          fullTranscript = current;
+        } else if (prev) {
+          // Motor segmentado (ex: Android contínuo): o texto atual é um novo segmento
+          fullTranscript = `${prev} ${current}`;
         } else {
-          callbacks.onSpeechPartial?.(transcript);
+          fullTranscript = current;
+        }
+
+        if (event.isFinal) {
+          VoiceRecognitionService.accumulatedTranscript = fullTranscript;
+          callbacks.onSpeechResults?.(fullTranscript);
+        } else {
+          callbacks.onSpeechPartial?.(fullTranscript);
         }
       });
       this.removeResultListener = () => resListener.remove();
 
       const errListener = nativeMod.addListener('error', (event: any) => {
-        console.warn('[VoiceService] Erro do motor nativo:', event.error);
+        console.warn('[VoiceService] Evento de erro nativo:', event.error);
+        // Se for speech-timeout ou no-speech mas já acumulamos texto, não descartamos
+        if (
+          (event.error === 'no-speech' || event.error === 'speech-timeout') &&
+          VoiceRecognitionService.accumulatedTranscript
+        ) {
+          return;
+        }
         callbacks.onError?.(event.message || event.error || 'Erro no reconhecimento');
       });
       this.removeErrorListener = () => errListener.remove();
@@ -120,13 +161,21 @@ export class VoiceRecognitionService {
 
       callbacks.onSpeechStart?.();
 
+      const isContinuous = options?.continuous ?? true;
+      const silenceMs = options?.silenceTimeoutMillis || 60000;
+
       await nativeMod.start({
         lang: 'pt-BR',
         interimResults: true,
         maxAlternatives: 1,
-        continuous: false,
+        continuous: isContinuous,
         requiresOnDeviceRecognition: false,
         addsPunctuation: true,
+        androidIntentOptions: {
+          EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: silenceMs,
+          EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: silenceMs,
+          EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS: Math.min(silenceMs, 10000),
+        },
       });
     } catch (error: any) {
       console.error('[VoiceService] Falha ao iniciar reconhecimento nativo:', error);
@@ -174,7 +223,10 @@ export class VoiceRecognitionService {
   // --- Suporte a navegadores / Web Fallback ---
   private static webRecognitionInstance: any = null;
 
-  private static startWebSpeech(callbacks: VoiceListenerCallbacks): void {
+  private static startWebSpeech(
+    callbacks: VoiceListenerCallbacks,
+    options?: VoiceRecognitionOptions
+  ): void {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -186,7 +238,7 @@ export class VoiceRecognitionService {
     try {
       const recognition = new SpeechRecognition();
       recognition.lang = 'pt-BR';
-      recognition.continuous = false;
+      recognition.continuous = options?.continuous ?? true;
       recognition.interimResults = true;
 
       recognition.onstart = () => {
@@ -195,10 +247,12 @@ export class VoiceRecognitionService {
 
       recognition.onresult = (event: any) => {
         let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        for (let i = 0; i < event.results.length; ++i) {
           transcript += event.results[i][0].transcript;
         }
-        if (event.results[0].isFinal) {
+        const isFinal = Boolean(event.results[event.results.length - 1]?.isFinal);
+        if (isFinal) {
+          VoiceRecognitionService.accumulatedTranscript = transcript;
           callbacks.onSpeechResults?.(transcript);
         } else {
           callbacks.onSpeechPartial?.(transcript);

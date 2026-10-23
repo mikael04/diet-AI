@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { NutritionTargets } from '../../types';
+import { NutritionTargets, VoiceInputMode, VoiceStopMode } from '../../types';
 
 const DEFAULT_TARGETS: NutritionTargets = {
   daily_kcal: 2200,
@@ -119,5 +119,48 @@ export class SecureStorageService {
 
   static async setVoiceAutoConfirm(enabled: boolean): Promise<void> {
     await setItem('diet_ai_auto_confirm', enabled ? 'true' : 'false');
+  }
+
+  static async getVoiceDefaultInputMode(): Promise<VoiceInputMode> {
+    const raw = await getItem('diet_ai_voice_default_input_mode');
+    if (raw === 'voice') return 'voice';
+    return 'keyboard'; // Padrão: digitar / teclado
+  }
+
+  static async setVoiceDefaultInputMode(mode: VoiceInputMode): Promise<void> {
+    await setItem('diet_ai_voice_default_input_mode', mode);
+  }
+
+  static async getVoiceStopMode(): Promise<VoiceStopMode> {
+    const raw = await getItem('diet_ai_voice_stop_mode');
+    if (raw === 'manual') return 'manual';
+    return 'silence'; // Padrão: parar após tempo sem som
+  }
+
+  static async setVoiceStopMode(mode: VoiceStopMode): Promise<void> {
+    await setItem('diet_ai_voice_stop_mode', mode);
+  }
+
+  static async getVoiceSilenceTimeout(): Promise<number> {
+    const raw = await getItem('diet_ai_voice_silence_timeout');
+    const parsed = parseInt(raw || '', 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+    return 5; // Padrão: 5 segundos
+  }
+
+  static async setVoiceSilenceTimeout(seconds: number): Promise<void> {
+    await setItem('diet_ai_voice_silence_timeout', seconds.toString());
+  }
+
+  static async getThemeMode(): Promise<'light' | 'dark' | 'system'> {
+    const mode = await getItem('diet_ai_theme_mode');
+    if (mode === 'dark' || mode === 'light' || mode === 'system') {
+      return mode;
+    }
+    return 'system';
+  }
+
+  static async setThemeMode(mode: 'light' | 'dark' | 'system'): Promise<void> {
+    await setItem('diet_ai_theme_mode', mode);
   }
 }

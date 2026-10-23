@@ -75,6 +75,7 @@ export class ExportService {
         id: number;
         date: string;
         water_ml: number;
+        weight_kg: number | null;
         notes: string | null;
         created_at: string;
       }>('SELECT * FROM daily_logs ORDER BY date DESC');
@@ -122,6 +123,7 @@ export class ExportService {
         return {
           date: log.date,
           water_ml: log.water_ml,
+          weight_kg: log.weight_kg ?? null,
           notes: log.notes,
           totals: {
             kcal: Math.round(dayKcal * 10) / 10,
@@ -221,12 +223,13 @@ export class ExportService {
         calculated_fat: number;
         calculated_fiber: number;
         water_ml: number;
+        weight_kg: number | null;
       }>(`
         SELECT dl.date, me.meal_type, li.food_name,
                li.quantity_value, li.quantity_unit,
                li.calculated_kcal, li.calculated_protein, li.calculated_carbs,
                li.calculated_fat, li.calculated_fiber,
-               dl.water_ml
+               dl.water_ml, dl.weight_kg
         FROM logged_items li
         JOIN meal_entries me ON li.meal_entry_id = me.id
         JOIN daily_logs dl ON me.daily_log_id = dl.id
@@ -251,6 +254,7 @@ export class ExportService {
         'Gorduras (g)',
         'Fibras (g)',
         'Água do Dia (ml)',
+        'Peso do Dia (kg)',
       ].join(';') + '\r\n';
 
       for (const row of rows) {
@@ -266,6 +270,7 @@ export class ExportService {
           row.calculated_fat.toFixed(1).replace('.', ','),
           row.calculated_fiber.toFixed(1).replace('.', ','),
           row.water_ml.toString(),
+          row.weight_kg !== null && row.weight_kg !== undefined ? row.weight_kg.toString().replace('.', ',') : '',
         ].join(';');
 
         csv += line + '\r\n';
@@ -627,8 +632,8 @@ export class ExportService {
         let logId: number;
         if (!logRow) {
           const insertLog = await db.runAsync(
-            'INSERT INTO daily_logs (date, water_ml, notes) VALUES (?, ?, ?)',
-            [day.date, day.water_ml || 0, day.notes || null]
+            'INSERT INTO daily_logs (date, water_ml, notes, weight_kg) VALUES (?, ?, ?, ?)',
+            [day.date, day.water_ml || 0, day.notes || null, day.weight_kg ?? null]
           );
           logId = Number(insertLog.lastInsertRowId);
           daysCount++;
@@ -637,6 +642,12 @@ export class ExportService {
           if (day.water_ml) {
             await db.runAsync('UPDATE daily_logs SET water_ml = MAX(water_ml, ?) WHERE id = ?', [
               day.water_ml,
+              logId,
+            ]);
+          }
+          if (day.weight_kg !== undefined && day.weight_kg !== null) {
+            await db.runAsync('UPDATE daily_logs SET weight_kg = COALESCE(weight_kg, ?) WHERE id = ?', [
+              day.weight_kg,
               logId,
             ]);
           }

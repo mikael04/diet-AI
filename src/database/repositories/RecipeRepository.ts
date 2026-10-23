@@ -87,6 +87,88 @@ export class RecipeRepository {
   }
 
   /**
+   * Atualiza uma receita existente (nome, descrição e lista de ingredientes)
+   */
+  static async updateRecipe(
+    id: number,
+    name: string,
+    description: string | undefined,
+    rawItems: Array<{ foodId: number; quantity: number; unit: string }>
+  ): Promise<Recipe> {
+    const db = await getDatabase();
+
+    await db.runAsync(
+      'UPDATE recipes SET name = ?, description = ? WHERE id = ?',
+      [name.trim(), description?.trim() || null, id]
+    );
+
+    const resolvedItems: RecipeItem[] = [];
+    let totalKcal = 0;
+    let totalProtein = 0;
+    let totalCarbs = 0;
+    let totalFat = 0;
+    let totalFiber = 0;
+
+    await db.withTransactionAsync(async () => {
+      await db.runAsync('DELETE FROM recipe_items WHERE recipe_id = ?', [id]);
+
+      for (const item of rawItems) {
+        const food = await FoodRepository.getFoodById(item.foodId);
+        if (!food) continue;
+
+        const macros = calculateMacros(food, item.quantity, item.unit);
+
+        const insertItemResult = await db.runAsync(
+          `INSERT INTO recipe_items (
+            recipe_id, food_id, food_name, quantity_value, quantity_unit,
+            calculated_kcal, calculated_protein, calculated_carbs, calculated_fat, calculated_fiber
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            food.id,
+            food.name,
+            item.quantity,
+            item.unit,
+            macros.calculated_kcal,
+            macros.calculated_protein,
+            macros.calculated_carbs,
+            macros.calculated_fat,
+            macros.calculated_fiber,
+          ]
+        );
+
+        resolvedItems.push({
+          id: Number(insertItemResult.lastInsertRowId),
+          recipe_id: id,
+          food_id: food.id,
+          food_name: food.name,
+          quantity_value: item.quantity,
+          quantity_unit: item.unit,
+          ...macros,
+        });
+
+        totalKcal += macros.calculated_kcal;
+        totalProtein += macros.calculated_protein;
+        totalCarbs += macros.calculated_carbs;
+        totalFat += macros.calculated_fat;
+        totalFiber += macros.calculated_fiber;
+      }
+    });
+
+    return {
+      id,
+      name: name.trim(),
+      description: description?.trim() || undefined,
+      items: resolvedItems,
+      total_kcal: Math.round(totalKcal * 10) / 10,
+      total_protein: Math.round(totalProtein * 10) / 10,
+      total_carbs: Math.round(totalCarbs * 10) / 10,
+      total_fat: Math.round(totalFat * 10) / 10,
+      total_fiber: Math.round(totalFiber * 10) / 10,
+    };
+  }
+
+  /**
    * Retorna todas as receitas salvas com seus itens agregados
    */
   static async getAllRecipes(): Promise<Recipe[]> {

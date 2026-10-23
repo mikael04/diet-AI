@@ -99,3 +99,16 @@ export function getYesterdayDate(baseDate: string = formatDate()): string {
   d.setDate(d.getDate() - 1);
   return formatDate(d);
 }
+
+/**
+ * Normaliza textos para busca, removendo acentos e pontuações e convertendo para minúsculas.
+ */
+export function normalizeSearchText(text: string): string {
+  return (text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+

@@ -19,6 +19,8 @@ npx expo lint               # lint
 npx tsc --noEmit            # typecheck
 npx expo-doctor             # diagnose dependency and config issues
 npx expo install --fix      # fix incompatible package versions
+bash scripts/build_android_apk.sh # Build do APK via Gradle e instalação automática via ADB no dispositivo
+bash scripts/install_apk_adb.sh   # Instalação direta do APK via ADB com flags -r -d
 ```
 
 Run lint and typecheck before declaring any task done.
@@ -36,6 +38,8 @@ Docs: https://docs.expo.dev/eas/index.md
 
 ## Rules
 
+- **Build Gradle & Instalação ADB Obrigatória**: Sempre que fizer alterações no código, novas features ou correções de bugs, execute o build do APK standalone via Gradle (`bash scripts/build_android_apk.sh` ou `npm run build:android`). O script compila o APK standalone (com bundle JS embutido), copia para a raiz como `diet-AI-<version>.apk` e automaticamente instala e inicia o app no aparelho conectado via ADB (`bash scripts/install_apk_adb.sh`). Nunca declare uma tarefa terminada sem compilar o APK e enviar para o aparelho conectado via ADB.
+- **Controle de Versão e Changelog Obrigatório**: Sempre que implementar alterações no código, atualize a versão do projeto em `package.json` e `app.json`, e documente as mudanças em `CHANGELOG.md` seguindo Semantic Versioning (SemVer: correções de bugs incrementam patch, ex: `0.2.0` -> `0.2.1`; novas features incrementam minor, ex: `0.2.0` -> `0.3.0`; breaking changes incrementam major).
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md

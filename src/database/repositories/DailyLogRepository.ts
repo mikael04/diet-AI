@@ -1,5 +1,5 @@
 import { getDatabase } from '../db';
-import { DailyLog, MealEntry, LoggedItem, MealType } from '../../types';
+import { DailyLog, MealEntry, LoggedItem, MealType, DayHistorySummary } from '../../types';
 import { calculateMacros } from '../../utils/nutrition';
 import { FoodRepository } from './FoodRepository';
 
@@ -13,7 +13,13 @@ export class DailyLogRepository {
     const db = await getDatabase();
 
     // 1. Busca ou cria o registro diário
-    let logRow = await db.getFirstAsync<{ id: number; date: string; water_ml: number; notes: string | null }>(
+    let logRow = await db.getFirstAsync<{
+      id: number;
+      date: string;
+      water_ml: number;
+      weight_kg: number | null;
+      notes: string | null;
+    }>(
       'SELECT * FROM daily_logs WHERE date = ?',
       [date]
     );
@@ -27,6 +33,7 @@ export class DailyLogRepository {
         id: Number(insertResult.lastInsertRowId),
         date,
         water_ml: 0,
+        weight_kg: null,
         notes: null,
       };
     }
@@ -105,6 +112,7 @@ export class DailyLogRepository {
       id: logRow.id,
       date: logRow.date,
       water_ml: logRow.water_ml || 0,
+      weight_kg: logRow.weight_kg !== null && logRow.weight_kg !== undefined ? logRow.weight_kg : null,
       notes: logRow.notes || undefined,
       meals: mealsMap,
       total_kcal: Math.round(dayKcal * 10) / 10,
@@ -157,6 +165,69 @@ export class DailyLogRepository {
     return {
       id: Number(result.lastInsertRowId),
       meal_entry_id: meal.id,
+      food_id: food.id,
+      food_name: food.name,
+      quantity_value: quantity,
+      quantity_unit: unit,
+      ...macros,
+    };
+  }
+
+  /**
+   * Atualiza um item já registrado (quantidade, unidade e/ou alimento)
+   */
+  static async updateLoggedItem(
+    itemId: number,
+    quantity: number,
+    unit: string,
+    foodId?: number
+  ): Promise<LoggedItem> {
+    const db = await getDatabase();
+    const currentItem = await db.getFirstAsync<LoggedItem>(
+      'SELECT * FROM logged_items WHERE id = ?',
+      [itemId]
+    );
+
+    if (!currentItem) {
+      throw new Error(`Item ${itemId} não encontrado.`);
+    }
+
+    const targetFoodId = foodId ?? currentItem.food_id;
+    const food = await FoodRepository.getFoodById(targetFoodId);
+    if (!food) {
+      throw new Error(`Alimento com ID ${targetFoodId} não encontrado.`);
+    }
+
+    const macros = calculateMacros(food, quantity, unit);
+
+    await db.runAsync(
+      `UPDATE logged_items SET
+        food_id = ?,
+        food_name = ?,
+        quantity_value = ?,
+        quantity_unit = ?,
+        calculated_kcal = ?,
+        calculated_protein = ?,
+        calculated_carbs = ?,
+        calculated_fat = ?,
+        calculated_fiber = ?
+      WHERE id = ?`,
+      [
+        food.id,
+        food.name,
+        quantity,
+        unit,
+        macros.calculated_kcal,
+        macros.calculated_protein,
+        macros.calculated_carbs,
+        macros.calculated_fat,
+        macros.calculated_fiber,
+        itemId,
+      ]
+    );
+
+    return {
+      ...currentItem,
       food_id: food.id,
       food_name: food.name,
       quantity_value: quantity,
@@ -235,5 +306,118 @@ export class DailyLogRepository {
       copiedCount += await this.copyMeal(fromDate, meal, toDate, meal);
     }
     return copiedCount;
+  }
+
+  /**
+   * Atualiza o peso corporal (em kg) para uma data específica
+   */
+  static async updateWeight(date: string, weightKg: number | null): Promise<void> {
+    const db = await getDatabase();
+    await this.getOrCreateDailyLog(date);
+    const validWeight = weightKg !== null && weightKg !== undefined && !isNaN(weightKg) && weightKg > 0 ? weightKg : null;
+    await db.runAsync(
+      'UPDATE daily_logs SET weight_kg = ? WHERE date = ?',
+      [validWeight, date]
+    );
+  }
+
+  /**
+   * Obtém resumos diários para os últimos N dias (7, 15, 30 dias)
+   */
+  static async getHistorySummaries(daysCount: 7 | 15 | 30 = 7): Promise<DayHistorySummary[]> {
+    const db = await getDatabase();
+
+    // Gera lista contínua de datas dos últimos N dias até hoje
+    const dates: string[] = [];
+    const today = new Date();
+    for (let i = daysCount - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      dates.push(`${y}-${m}-${day}`);
+    }
+
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+
+    // Busca registros da tabela daily_logs no intervalo
+    const logs = await db.getAllAsync<{
+      id: number;
+      date: string;
+      water_ml: number;
+      weight_kg: number | null;
+    }>(
+      'SELECT id, date, water_ml, weight_kg FROM daily_logs WHERE date >= ? AND date <= ?',
+      [startDate, endDate]
+    );
+
+    const logMap = new Map<string, { id: number; water_ml: number; weight_kg: number | null }>();
+    for (const l of logs) {
+      logMap.set(l.date, { id: l.id, water_ml: l.water_ml, weight_kg: l.weight_kg });
+    }
+
+    // Busca totais de macronutrientes calculados agrupados por data
+    const totals = await db.getAllAsync<{
+      date: string;
+      total_kcal: number;
+      total_protein: number;
+      total_carbs: number;
+      total_fat: number;
+      total_fiber: number;
+      items_count: number;
+    }>(
+      `SELECT dl.date,
+              COALESCE(SUM(li.calculated_kcal), 0) as total_kcal,
+              COALESCE(SUM(li.calculated_protein), 0) as total_protein,
+              COALESCE(SUM(li.calculated_carbs), 0) as total_carbs,
+              COALESCE(SUM(li.calculated_fat), 0) as total_fat,
+              COALESCE(SUM(li.calculated_fiber), 0) as total_fiber,
+              COUNT(li.id) as items_count
+       FROM daily_logs dl
+       LEFT JOIN meal_entries me ON dl.id = me.daily_log_id
+       LEFT JOIN logged_items li ON me.id = li.meal_entry_id
+       WHERE dl.date >= ? AND dl.date <= ?
+       GROUP BY dl.date`,
+      [startDate, endDate]
+    );
+
+    const totalsMap = new Map<string, {
+      total_kcal: number;
+      total_protein: number;
+      total_carbs: number;
+      total_fat: number;
+      total_fiber: number;
+      items_count: number;
+    }>();
+
+    for (const t of totals) {
+      totalsMap.set(t.date, {
+        total_kcal: Math.round(t.total_kcal * 10) / 10,
+        total_protein: Math.round(t.total_protein * 10) / 10,
+        total_carbs: Math.round(t.total_carbs * 10) / 10,
+        total_fat: Math.round(t.total_fat * 10) / 10,
+        total_fiber: Math.round(t.total_fiber * 10) / 10,
+        items_count: t.items_count,
+      });
+    }
+
+    // Retorna todos os dias de forma contínua
+    return dates.map((date) => {
+      const log = logMap.get(date);
+      const tot = totalsMap.get(date);
+      return {
+        date,
+        total_kcal: tot ? tot.total_kcal : 0,
+        total_protein: tot ? tot.total_protein : 0,
+        total_carbs: tot ? tot.total_carbs : 0,
+        total_fat: tot ? tot.total_fat : 0,
+        total_fiber: tot ? tot.total_fiber : 0,
+        water_ml: log ? log.water_ml : 0,
+        weight_kg: log && log.weight_kg !== null && log.weight_kg !== undefined ? log.weight_kg : null,
+        items_count: tot ? tot.items_count : 0,
+      };
+    });
   }
 }

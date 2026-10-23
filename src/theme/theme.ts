@@ -21,6 +21,8 @@ export const customLightTheme = {
     background: '#F8FAFC',
     surface: '#FFFFFF',
     surfaceVariant: '#F1F5F9',
+    onSurface: '#0F172A',
+    onSurfaceVariant: '#475569',
     outline: '#CBD5E1',
   },
 };
@@ -37,6 +39,8 @@ export const customDarkTheme = {
     background: '#0F172A',
     surface: '#1E293B',
     surfaceVariant: '#334155',
+    onSurface: '#F8FAFC',
+    onSurfaceVariant: '#94A3B8',
     outline: '#475569',
   },
 };

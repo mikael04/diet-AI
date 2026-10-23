@@ -3,7 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { PaperProvider, Text } from 'react-native-paper';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { customLightTheme } from './src/theme/theme';
+import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
 import { getDatabase } from './src/database/db';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { RecipesScreen } from './src/screens/RecipesScreen';
@@ -11,9 +11,10 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 
 type Screen = 'dashboard' | 'recipes' | 'settings';
 
-export default function App() {
+function AppContent() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('dashboard');
   const [dbReady, setDbReady] = useState(false);
+  const { theme, isDark } = useAppTheme();
 
   useEffect(() => {
     async function init() {
@@ -30,9 +31,9 @@ export default function App() {
 
   if (!dbReady) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
         <ActivityIndicator size="large" color="#0D9488" />
-        <Text variant="titleMedium" style={styles.loadingText}>
+        <Text variant="titleMedium" style={[styles.loadingText, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
           Iniciando Diet-AI e carregando Tabela TACO...
         </Text>
       </View>
@@ -40,24 +41,35 @@ export default function App() {
   }
 
   return (
+    <PaperProvider theme={theme}>
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+        edges={['top', 'left', 'right']}
+      >
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        {currentScreen === 'dashboard' && (
+          <DashboardScreen
+            onNavigateToRecipes={() => setCurrentScreen('recipes')}
+            onNavigateToSettings={() => setCurrentScreen('settings')}
+          />
+        )}
+        {currentScreen === 'recipes' && (
+          <RecipesScreen onBack={() => setCurrentScreen('dashboard')} />
+        )}
+        {currentScreen === 'settings' && (
+          <SettingsScreen onBack={() => setCurrentScreen('dashboard')} />
+        )}
+      </SafeAreaView>
+    </PaperProvider>
+  );
+}
+
+export default function App() {
+  return (
     <SafeAreaProvider>
-      <PaperProvider theme={customLightTheme}>
-        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-          <StatusBar style="dark" />
-          {currentScreen === 'dashboard' && (
-            <DashboardScreen
-              onNavigateToRecipes={() => setCurrentScreen('recipes')}
-              onNavigateToSettings={() => setCurrentScreen('settings')}
-            />
-          )}
-          {currentScreen === 'recipes' && (
-            <RecipesScreen onBack={() => setCurrentScreen('dashboard')} />
-          )}
-          {currentScreen === 'settings' && (
-            <SettingsScreen onBack={() => setCurrentScreen('dashboard')} />
-          )}
-        </SafeAreaView>
-      </PaperProvider>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "diet-ai",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "main": "index.ts",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -34,6 +34,7 @@
     "web": "expo start --web",
     "prebuild": "expo prebuild",
     "build:android": "bash scripts/build_android_apk.sh",
+    "install:android": "bash scripts/install_apk_adb.sh",
     "test": "tsx scripts/test_nutrition_logic.ts",
     "typecheck": "tsc --noEmit"
   },

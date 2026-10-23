@@ -21,6 +21,8 @@ export interface FoodItem {
   fiber_per_100g: number;
   is_custom: boolean | number;
   synonyms?: string;
+  last_quantity?: number;
+  last_unit?: string;
 }
 
 export interface LoggedItem {
@@ -54,6 +56,7 @@ export interface DailyLog {
   id: number;
   date: string; // YYYY-MM-DD
   water_ml: number;
+  weight_kg?: number | null;
   notes?: string;
   meals: Record<MealType, MealEntry>;
   total_kcal: number;
@@ -61,6 +64,18 @@ export interface DailyLog {
   total_carbs: number;
   total_fat: number;
   total_fiber: number;
+}
+
+export interface DayHistorySummary {
+  date: string; // YYYY-MM-DD
+  total_kcal: number;
+  total_protein: number;
+  total_carbs: number;
+  total_fat: number;
+  total_fiber: number;
+  water_ml: number;
+  weight_kg: number | null;
+  items_count: number;
 }
 
 export interface RecipeItem {
@@ -139,3 +154,6 @@ export interface ResolvedMealAction {
   recipe_name?: string | null;
   original_transcript: string;
 }
+
+export type VoiceInputMode = 'keyboard' | 'voice';
+export type VoiceStopMode = 'silence' | 'manual';

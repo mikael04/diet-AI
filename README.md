@@ -1,6 +1,6 @@
 # Diet-AI 🥗🎙️
 
-[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.1.0-blue.svg)](CHANGELOG.md)
+[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0-blue.svg)](CHANGELOG.md)
 [![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-green.svg)](LICENSE)
 [![Expo](https://img.shields.io/badge/Expo-SDK%2052%2F57-000020.svg)](https://expo.dev)
 
@@ -12,12 +12,12 @@
 
 * **Framework:** React Native (TypeScript) + **Expo SDK 52/57 (Expo Prebuild)**
 * **Compilação Android:** Nativa via **Gradle** (`./gradlew assembleDebug` na pasta `android/`)
-* **Design System:** Material Design 3 via **React Native Paper**
+* **Design System:** Material Design 3 via **React Native Paper** (com Modo Claro e Modo Escuro)
 * **Banco de Dados Local:** SQLite (`expo-sqlite`) com migrações automáticas e busca rápida
 * **Base Nutricional:** **Tabela TACO (Unicamp)** com mais de 500 alimentos e porções populares pré-calibradas
 * **Reconhecimento de Voz:** Transcrição local nativa do sistema operacional (`android.speech.SpeechRecognizer` / `SFSpeechRecognizer`) com **Custo Zero** de áudio
 * **Inteligência Artificial:** **Google Gemini API** (ou endpoints OpenAI compatíveis) em modo estruturado (JSON Schema) para interpretação dos alimentos e quantidades
-* **Armazenamento Seguro:** `expo-secure-store` para chaves de API
+* **Armazenamento Seguro:** `expo-secure-store` para chaves de API e preferências de tema
 
 ---
 
@@ -44,20 +44,20 @@ Acesse `http://localhost:8081` para visualizar e interagir com o app no seu comp
 
 ---
 
-### 3. Compilação do APK Android via Gradle
+### 3. Compilação do APK Android via Gradle & Instalação via ADB
 
-O projeto já conta com a pasta nativa `android/` configurada via Expo Prebuild:
+O projeto conta com scripts automatizados para compilar o APK standalone e instalá-lo no celular via **ADB** (usando o Distrobox Fedora):
 
 ```bash
-# Executar a compilação do APK de debug
+# Compilar o APK de debug e instalar automaticamente no celular (se conectado)
 npm run build:android
-# ou diretamente:
-cd android && ./gradlew assembleDebug
-```
-* O arquivo `.apk` gerado estará em:  
-  `android/app/build/outputs/apk/debug/app-debug.apk`
 
-*(Observação: Requer JDK 17+ e Android SDK configurados no ambiente de compilação).*
+# Apenas enviar e instalar o APK já compilado no celular via ADB (sem recompilar)
+npm run install:android
+```
+
+* **Arquivo de distribuição gerado:** `diet-AI-0.2.apk` (na raiz do projeto) e `android/app/build/outputs/apk/debug/app-debug.apk`
+* A instalação utiliza as flags `-r -d`, preservando integralmente o banco SQLite local (`diet_ai.db`), configurações e histórico de dados do usuário.
 
 ---
 
